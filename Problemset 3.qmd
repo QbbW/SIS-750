@@ -1,0 +1,276 @@
+---
+title: "Problem Set 3"
+author: "Annie Wang"
+format: html
+knitr: 
+  opts_chunk: 
+    echo: true
+    eval: true
+---
+
+```{r}
+library(dplyr)
+library(purrr)
+library(tibble)
+library(tidyr)
+library(stringr)
+library(xml2)
+library(rvest)
+library(chromote)
+```
+
+```{r}
+url <- "https://www.c-span.org/congress/members/?congress=119&congressyear&chamber=senate&visual&find-name=all&find-state=all&find-party=all&status=all&sort-names=name&all"
+members_page <- read_html(url)
+member_nodes <- members_page %>%
+  html_elements("section.people.tiled.parties ul li")
+
+length(member_nodes)
+```
+
+```{r}
+node <- member_nodes[[1]]
+text_node <- node %>% html_element("div.text")
+text_node %>% html_text2()
+
+```
+
+```{r}
+
+member_nodes <- members_page %>%
+  html_elements("section.people.tiled.parties ul li")
+
+parse_member <- function(node) {
+  
+  text_node <- node %>%
+    html_element("div.text")
+  
+  name <- text_node %>%
+    html_element("a.name h3") %>%
+    html_text2()
+  
+  org <- text_node |>
+    html_element("span.organization") %>%
+    html_text2()
+  
+  party <- str_sub(org, 1, 1)
+  state <- str_sub(org, 3, 4)
+  
+  profile_url <- text_node %>%
+    html_element("a.name") %>%
+    html_attr("href")
+  
+  profile_url <- paste0("https:", profile_url)
+  
+  tibble(
+    name = name,
+    party = party,
+    state = state,
+    profile_url = profile_url
+  )
+}
+
+senators_df <- map_dfr(member_nodes, parse_member)
+
+senators_df
+```
+
+
+
+```{r}
+# change the profile url to correct format
+to_canonical_cspan <- function(url) {
+  m <- stringr::str_match(url, "/person/\\?(\\d+)/(.*)$")
+  if (is.na(m[1, 1])) return(url)
+
+  id <- m[1, 2]
+  name_raw <- m[1, 3]
+
+  name_slug <- name_raw |>
+    stringr::str_replace_all("([a-z0-9])([A-Z])", "\\1-\\2") |>
+    stringr::str_replace_all("\\.", "") |>
+    stringr::str_replace_all("[^A-Za-z0-9]+", "-") |>
+    stringr::str_to_lower() |>
+    stringr::str_replace_all("-+", "-") |>
+    stringr::str_replace_all("^-|-$", "")
+
+  paste0("https://www.c-span.org/person/", name_slug, "/", id, "/")
+}
+
+senators_df <- senators_df |>
+  mutate(profile_url_canonical = purrr::map_chr(profile_url, to_canonical_cspan))
+
+senators_df
+```
+
+```{r}
+# Test
+parse_profile <- function(profile_url, max_tries = 3) {
+  for (i in seq_len(max_tries)) {
+    cat("Trying:", profile_url, " attempt ", i, "\n")
+
+    out <- tryCatch({
+      page <- rvest::read_html_live(profile_url)
+      Sys.sleep(runif(1, 4, 7))
+
+      nodes <- page$html_elements("li#person-bill-list-119")
+      cat("nodes found:", length(nodes), "\n")
+
+      if (length(nodes) > 0) {
+        section_text <- nodes[[1]] |>
+          rvest::html_text2() |>
+          stringr::str_squish()
+      } else {
+        body_nodes <- page$html_elements("body")
+        if (length(body_nodes) == 0) {
+          return(tibble(
+            sponsored_bills_119 = NA_integer_,
+            main_topic_119 = NA_character_
+          ))
+        }
+
+        section_text <- body_nodes |>
+          rvest::html_text2() |>
+          stringr::str_squish()
+      }
+
+      sponsored_bills_119 <- stringr::str_extract(
+        section_text,
+        "(?<=Bills Sponsored:)\\s*\\d+"
+      ) |>
+        as.integer()
+
+      main_topic_119 <- stringr::str_extract(
+        section_text,
+        "(?<=Commonly Sponsored Bill Policy Areas:)\\s*.*?(?=Amendments:|Bills Co-Sponsored:)"
+      ) |>
+        stringr::str_squish()
+
+      if (identical(main_topic_119, "")) {
+        main_topic_119 <- NA_character_
+      }
+
+      tibble(
+        sponsored_bills_119 = sponsored_bills_119,
+        main_topic_119 = main_topic_119
+      )
+    }, error = function(e) {
+      cat("ERROR:", conditionMessage(e), "\n")
+      NULL
+    })
+
+    if (!is.null(out) && (!is.na(out$sponsored_bills_119[1]) || !is.na(out$main_topic_119[1]))) {
+      return(out)
+    }
+
+    Sys.sleep(runif(1, 3, 6))
+  }
+
+  tibble(
+    sponsored_bills_119 = NA_integer_,
+    main_topic_119 = NA_character_
+  )
+}
+```
+
+```{r}
+batch_size <- 10
+
+batch_index <- split(
+  seq_len(nrow(senators_df)),
+  ceiling(seq_len(nrow(senators_df)) / batch_size)
+)
+
+run_one_batch <- function(rows) {
+  senators_df[rows, ] |>
+    dplyr::mutate(
+      profile_data = purrr::map(profile_url_canonical, parse_profile)
+    ) |>
+    tidyr::unnest(cols = c(profile_data))
+}
+
+batch_results <- purrr::map(batch_index, function(rows) {
+  cat("\n========================\n")
+  cat("Running batch:", min(rows), "to", max(rows), "\n")
+  cat("========================\n")
+
+  out <- run_one_batch(rows)
+
+  Sys.sleep(10)
+
+  out
+})
+
+senators_full <- dplyr::bind_rows(batch_results)
+
+senators_full |>
+  dplyr::select(name, sponsored_bills_119, main_topic_119) |>
+  dplyr::slice_head(n = 10)
+```
+
+```{r}
+senators_full
+```
+
+```{r}
+library(dplyr)
+
+top_10 <- senators_full |>
+  arrange(desc(sponsored_bills_119)) |>
+  slice_head(n = 10)
+
+bottom_10 <- senators_full |>
+  arrange(sponsored_bills_119) |>
+  slice_head(n = 10)
+
+top_10
+bottom_10
+```
+
+```{r}
+party_summary <- senators_full |>
+  group_by(party) |>
+  summarise(
+    avg_bills = mean(sponsored_bills_119, na.rm = TRUE),
+    median_bills = median(sponsored_bills_119, na.rm = TRUE),
+    count = n(),
+    .groups = "drop"
+  )
+
+party_summary
+```
+
+```{r}
+topic_summary <- senators_full |>
+  count(main_topic_119, sort = TRUE)
+
+topic_summary
+```
+
+```{r}
+ggplot(top_10, aes(x = reorder(name, sponsored_bills_119), y = sponsored_bills_119)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Top 10 Senators by Bills Sponsored (119th Congress)",
+    x = "Senator",
+    y = "Number of Sponsored Bills"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+ggplot(party_summary, aes(x = party, y = avg_bills)) +
+  geom_col() +
+  labs(
+    title = "Average Bills Sponsored by Party",
+    x = "Party",
+    y = "Average Number of Bills"
+  ) +
+  theme_minimal()
+```
+
+
+
+
+
