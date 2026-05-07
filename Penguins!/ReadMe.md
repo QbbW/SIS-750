@@ -1,5 +1,5 @@
 # Exploratory Visualization with Palmer Penguins
-## Assignment Overview
+### Assignment Overview
 This assignment introduced core data visualization workflows in R using ggplot2. The goal was to explore a real world dataset through multiple chart types, practice layering geoms, and communicate findings through visual storytelling.
 
 ## Research Topic
