@@ -1,0 +1,269 @@
+---
+title: "Penguins, Bodies, and Islands: A Data Visualization Report"
+author: "Annie Wang"
+format:
+  pdf:
+    documentclass: article
+    geometry:
+      - margin=1in
+    fontsize: 11pt
+    linestretch: 1
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+# Introduction
+
+TThis report explores physical differences among three penguin species in the palmerpenguins dataset: Adelie, Chinstrap, and Gentoo penguins. Rather than treating the dataset as a simple collection of animal measurements, this report uses visualization to tell a story about how species differ in shape, size, sex-based body mass, and island distribution.
+
+The central question is: How do physical traits help distinguish penguin species, and how are these differences connected to sex and location?
+
+The analysis begins with bill dimensions, which show clear species level clustering. It then moves to body size by examining the relationship between flipper length and body mass. After that, the report also adds sex as another layer of variation, and then it looks at island distribution to show that species differences are also connected to geography.
+
+# Data and Method
+
+This report uses the penguins dataset from the palmerpenguins package. The dataset includes observations of penguins from three islands in the Palmer Archipelago: Biscoe, Dream, and Torgersen. The main variables used in this report are species, island, bill length, bill depth, flipper length, body mass, and sex.
+
+The analysis was conducted in R using tidyverse, ggplot2, and palmerpenguins. Missing values were removed only when necessary for specific visualizations. The visualizations are designed to emphasize clarity, comparison, and interpretation rather than just showing raw patterns.
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(palmerpenguins)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(forcats)
+library(patchwork)
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 8,
+  fig.height = 5
+)
+
+penguin_palette <- c(
+  "Adelie" = "#4E79A7",
+  "Chinstrap" = "#F28E2B",
+  "Gentoo" = "#59A14F"
+)
+
+theme_penguin <- function() {
+  theme_minimal(base_size = 12) +
+    theme(
+      plot.title = element_text(face = "bold", size = 15),
+      plot.subtitle = element_text(size = 11, color = "gray30"),
+      plot.caption = element_text(size = 9, color = "gray40", hjust = 0),
+      legend.position = "bottom",
+      panel.grid.minor = element_blank()
+    )
+}
+```
+
+# Penguinssss
+```{r, include=FALSE}
+# install.packages("palmerpenguins") 
+# I asked Perplexity if there's anything animal-related data in r that is suitable for ggplot2
+library(palmerpenguins)
+library(tidyverse)
+
+```
+
+```{r, include=FALSE}
+penguins
+```
+
+```{r}
+penguins_clean <- penguins %>%
+  drop_na(species, island, bill_length_mm, bill_depth_mm, 
+          flipper_length_mm, body_mass_g)
+
+penguins_sex <- penguins %>%
+  drop_na(species, sex, body_mass_g, flipper_length_mm)
+
+penguins_summary <- penguins_sex %>%
+  group_by(species, sex) %>%
+  summarise(
+    mean_mass = mean(body_mass_g),
+    n = n(),
+    .groups = "drop"
+  )
+```
+
+### Bill Shape: The First Sign of Species DifferenceBill length vs bill depth by species
+```{r}
+#| fig-cap: "Penguin Bill Dimensions by Species"
+
+ggplot(
+  penguins_clean,
+  aes(
+    x = bill_length_mm,
+    y = bill_depth_mm,
+    color = species
+  )
+) +
+  geom_point(alpha = 0.75, size = 2.4) +
+  scale_color_manual(values = penguin_palette) +
+  labs(
+    title = "Penguin Bill Dimensions Separate Clearly by Species",
+    subtitle = "Adelie penguins have shorter and deeper bills.",
+    x = "Bill length (mm)",
+    y = "Bill depth (mm)",
+    color = "Species",
+    caption = "Source: palmerpenguins package"
+  ) +
+  theme_penguin()
+
+```
+
+Figure 1 shows that bill length and bill depth are highly useful for distinguishing penguin species. The three species do not overlap randomly. Instead, they form visible clusters.
+
+Adelie penguins tend to have shorter but deeper bills. Gentoo penguins generally have longer bills with lower bill depth, while Chinstrap penguins also have longer bills but tend to have deeper bills than Gentoo penguins. This makes bill shape one of the clearest visual indicators of species difference in the dataset.
+
+The main takeaway from this figure is that species identity is strongly reflected in morphology. Even before looking at body mass, sex, or island location, the penguins already separate into visually meaningful groups.
+
+### Body Size: Gentoo Penguins Stand Apart
+```{r}
+#| fig-cap: "Larger Penguins Tend to Have Longer Flippers"
+ggplot(
+  penguins_clean,
+  aes(
+    x = flipper_length_mm,
+    y = body_mass_g,
+    color = species
+  )
+) +
+  geom_point(alpha = 0.7, size = 2.3) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.9) +
+  scale_color_manual(values = penguin_palette) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(
+    title = "Larger Penguins Tend to Have Longer Flippers",
+    subtitle = "Gentoo penguins stand out with both 
+    higher body mass and longer flipper length.",
+    x = "Flipper length (mm)",
+    y = "Body mass (g)",
+    color = "Species",
+    caption = "Source: palmerpenguins package"
+  ) +
+  theme_penguin()
+```
+Figure 2 examines the relationship between flipper length and body mass. The overall pattern is positive: penguins with longer flippers generally tend to weigh more. This relationship is especially clear because the species are not evenly mixed across the plot.
+
+Gentoo penguins stand apart from the other two species. They generally have the longest flippers and the highest body mass. Adelie and Chinstrap penguins occupy lower ranges of body mass and flipper length, although they still show some internal variation.
+
+The regression lines help show that the relationship between flipper length and body mass is not only driven by one species. Within each species, longer flippers are generally associated with heavier body mass. However, Gentoo penguins have a higher overall size profile, which makes them visually distinct from the other species.
+
+### Sex Differences: Males Are Consistently Heavier
+```{r}
+#| fig-cap: "Male Penguins Are Overall Heavier"
+ggplot(
+  penguins_sex,
+  aes(
+    x = species,
+    y = body_mass_g,
+    fill = sex
+  )
+) +
+  geom_boxplot(
+    position = position_dodge(width = 0.75),
+    alpha = 0.72,
+    outlier.alpha = 0.35
+  ) +
+  geom_point(
+    data = penguins_summary,
+    aes(
+      x = species,
+      y = mean_mass,
+      color = sex,
+      group = sex
+    ),
+    position = position_dodge(width = 0.75),
+    size = 3,
+    inherit.aes = FALSE
+  ) +
+  geom_line(
+    data = penguins_summary,
+    aes(
+      x = species,
+      y = mean_mass,
+      color = sex,
+      group = sex
+    ),
+    position = position_dodge(width = 0.75),
+    linewidth = 0.9,
+    inherit.aes = FALSE
+  ) +
+  scale_y_continuous(labels = scales::comma) +
+  labs(
+    title = "Male Penguins Are Heavier Across All Three Species",
+    subtitle = "Sex-based body mass differences are consistent, but Gentoo penguins remain the heaviest species overall.",
+    x = "Species",
+    y = "Body mass (g)",
+    fill = "Sex",
+    color = "Sex",
+    caption = "Points represent mean body mass by species and sex. Source: palmerpenguins package"
+  ) +
+  theme_penguin()
+
+```
+Figure 3 adds sex to the analysis of body mass. The plot shows that male penguins are consistently heavier than female penguins across all three species. This pattern appears clearly in the boxplots and is reinforced by the mean points and connecting lines.
+
+Gentoo penguins remain the heaviest species overall. Male Gentoo penguins have the highest body mass, and female Gentoo penguins are also generally heavier than female Adelie and Chinstrap penguins. This suggests that species differences and sex differences both matter.
+
+The figure is useful because it prevents an overly simple interpretation of body mass. If we only compare species, we might miss the fact that sex also explains a meaningful part of the variation. At the same time, sex does not erase species differences. Gentoo penguins are still heavier overall, even when comparing males and females separately.
+
+
+### Island Distribution: Species Are Not Spread Evenly
+```{r}
+#| fig-cap: "Species Across Islands"
+ggplot(
+  penguins_clean,
+  aes(
+    x = bill_length_mm,
+    y = flipper_length_mm,
+    color = species
+  )
+) +
+  geom_point(alpha = 0.75, size = 2.3) +
+  facet_wrap(~ island) +
+  scale_color_manual(values = penguin_palette) +
+  labs(
+    title = "Penguin Species Are Distributed Unevenly Across Islands",
+    subtitle = "Adelie penguins appear on all three islands.",
+    x = "Bill length (mm)",
+    y = "Flipper length (mm)",
+    color = "Species",
+    caption = "Source: palmerpenguins package"
+  ) +
+  theme_penguin()
+```
+
+Figure 4 shows how species distribution varies across islands. Adelie penguins appear on all three islands: Biscoe, Dream, and Torgersen. Gentoo penguins appear only on Biscoe Island in this dataset, while Chinstrap penguins appear only on Dream Island.
+
+This plot adds a geographic layer to the report. Species differences are not only visible in physical traits; they are also connected to where the penguins are observed. Biscoe Island includes Adelie and Gentoo penguins, Dream Island includes Adelie and Chinstrap penguins, and Torgersen Island includes Adelie penguins only.
+
+The figure also shows why faceting is useful. Instead of placing all observations into one plot, separating the data by island makes the geographic pattern much easier to see. It also helps explain why some species clusters appear the way they do in the earlier figures.
+
+However, this visualization should be interpreted carefully. The plot shows that species and island are related in the dataset, but it does not prove why different species appear on different islands. The distribution could reflect ecological adaptation, sampling design, environmental differences, or other factors not directly tested here.
+
+
+# Discussion
+Penguin species differ in multiple connected ways. Bill shape separates the species visually, body size makes Gentoo penguins stand out, sex explains additional variation in body mass, and island location shows that species are not evenly distributed across space. The first figure shows that bill length and bill depth are strong indicators of species identity. Adelie penguins have shorter and deeper bills, while Gentoo and Chinstrap penguins occupy different bill-shape ranges. The second figure shows that physical size also differs by species, with Gentoo penguins having longer flippers and heavier bodies. The third figure shows that male penguins are generally heavier than female penguins across all species. Finally, the island plot shows that penguin species are geographically patterned.
+
+These findings show why visualization is valuable for exploratory data analysis. A simple summary table could show average bill length or body mass, but it would not reveal clustering, overlap, separation, or distribution as clearly as the plots do. The visualizations make it easier to see that penguin differences are multidimensional.
+
+
+# Conclusion
+The broader takeaway is that penguin species are not distinguished by one trait alone. Instead, species identity is reflected through a combination of morphology, size, sex-based variation, and geography. The palmerpenguins dataset is therefore useful not only for practicing ggplot2, but also for learning how strong visual design can turn raw data into a coherent analytical story.
+
+
+
+
+
+
+
+
