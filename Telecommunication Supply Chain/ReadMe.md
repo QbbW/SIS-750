@@ -1,10 +1,9 @@
-# Overview
-This assignment applied data wrangling and visualization skills to a policy-relevant research question in international trade. The goal was to combine multiple real-world datasets, produce publication-quality figures in R, and interpret findings in a short analytical paper using Quarto.
+# Seeing Through Gross Trade: U.S. Telecommunications, Value Added, and Chinese Supply-Chain Exposure
+### What this is
+This report asks a simple but analytically tricky question: when the United States buys and sells telecommunications goods, how much of the underlying value is actually made in America — and how much is Chinese? Gross trade data (who ships what to whom) can't answer that on its own. This project combines three datasets to dig deeper.
 
-### Research Topic
-The analysis examines how the U.S. position in the global telecommunications economy has changed from 2000 to 2022. Rather than relying solely on gross trade statistics, the paper compares surface-level import and export flows with domestic value-added (DVA) data to assess whether U.S. participation in telecommunications trade reflects genuine domestic productive capacity or growing dependence on foreign production networks — particularly those centered on China.
-
-The central argument is that gross trade data and value-added data tell related but importantly different stories: the United States remains a major market and exporter, but its domestic value-added share has declined structurally, pointing to weakened productive capacity relative to global competitors.
+### Research question
+Does the United States remain strong in telecommunications production, or do gross trade patterns conceal deeper dependence on foreign and Chinese value added?
 
 | Dataset     | Description                                                                                                           | Source                                                   |
 | ----------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
@@ -18,17 +17,15 @@ TiVA industry scope: ICT / Telecommunications sector (ISIC Rev. 4 classification
 Time coverage: 2000–2022
 
 ### Approach
-The analysis proceeds in four steps, each corresponding to a figure:
+The analysis builds in three layers:
 
-Figure 1 — U.S. imports from top source countries (2000–2022): A multi-line time series using UN Comtrade data, showing the rise of China as a dominant supplier and the subsequent shift toward Vietnam and Mexico in later years.
+Gross trade (UN Comtrade) — who the U.S. directly imports from and exports to, and how that geography has shifted since 2000
 
-Figure 2 — Domestic value-added share in U.S. final demand: A single-line time series from OECD TiVA, constructed by dividing U.S. domestic value added by total value added in U.S. final telecommunications demand.
+Value-added (OECD TiVA) — how much of the value in U.S. telecom final demand and exports is actually created domestically vs. abroad
 
-Figure 3 — U.S. gross telecommunications exports to the world: A line chart of total gross export values from UN Comtrade, providing the denominator context for Figure 4.
+Chinese value added (ADB MRIO) — how much Chinese-origin value reaches U.S. supply chains, including indirectly through third countries like Vietnam, Mexico, and Korea
 
-Figure 4 — Domestic value added in U.S. gross exports: A line chart of DVA from OECD TiVA, showing that DVA growth lags gross export growth — indicating rising foreign content in U.S. exports.
-
-All figures were produced in R using ggplot2, dplyr, readr, and scales. Data cleaning steps include type coercion, exclusion of aggregate rows (e.g., "World", "Other Asia, NES"), and reshaping for join operations.
+Eight figures are produced in total, moving from surface-level trade flows to deeper production-network exposure.
 
 ### References
 Organisation for Economic Co-operation and Development (OECD). Trade in Value Added (TiVA) database. https://www.oecd.org/en/topics/trade-in-value-added.html
