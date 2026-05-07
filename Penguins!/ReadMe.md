@@ -1,8 +1,8 @@
 # Exploratory Visualization with Palmer Penguins
-Assignment Overview
+## Assignment Overview
 This assignment introduced core data visualization workflows in R using ggplot2. The goal was to explore a real world dataset through multiple chart types, practice layering geoms, and communicate findings through visual storytelling.
 
-Research Topic
+## Research Topic
 The analysis examines morphological variation across three penguin species — Adelie, Chinstrap, and Gentoo — in the Palmer Archipelago, Antarctica. Specifically, the visualizations investigate relationships between bill dimensions, flipper length, body mass, and sex, as well as the geographic distribution of species across islands.
 
 Data
