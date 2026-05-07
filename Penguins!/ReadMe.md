@@ -1,4 +1,4 @@
-# Exploratory Visualization with Palmer Penguins
+# Exploratory Visualization with Palmer Penguins 🐧
 ### Assignment Overview
 This assignment introduced core data visualization workflows in R using ggplot2. The goal was to explore a real world dataset through multiple chart types, practice layering geoms, and communicate findings through visual storytelling.
 
@@ -18,4 +18,5 @@ Original data collected by: Dr. Kristen Gorman and the Palmer Station Long Term 
 
 ### Files
 Penguins.qmd: Quarto script with all code and narrative
+
 Penguins.pdf: Rendered PDF output
