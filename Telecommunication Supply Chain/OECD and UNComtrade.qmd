@@ -1,0 +1,532 @@
+---
+title: "Seeing Through Gross Trade: U.S. Telecommunications, Value Added, and Chinese Supply-Chain Exposure"
+author: "Annie Wang"
+format:
+  pdf:
+    documentclass: article
+    geometry:
+      - margin=1in
+    fontsize: 11pt
+    linestretch: 1
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r setup}
+# Core packages -----------------------------------------------------------
+library(tidyverse)
+library(readr)
+library(readxl)
+library(scales)
+library(patchwork)
+
+# Reproducible paths ------------------------------------------------------
+# Change this single line if your folder location changes.
+data_dir <- "/Users/nw/Desktop/Practicum"
+figure_dir <- file.path(data_dir, "figures")
+dir.create(figure_dir, showWarnings = FALSE, recursive = TRUE)
+
+# Visual style ------------------------------------------------------------
+main_blue <- "#1874CD"
+china_red <- "#E63946"
+muted_gray <- "gray65"
+
+country_colors <- c(
+  "China" = "#E63946",
+  "China (People’s Republic of)" = "#E63946",
+  "United States" = "#1874CD",
+  "USA" = "#1874CD",
+  "Canada" = "#F4A261",
+  "Mexico" = "#FFB6C1",
+  "Japan" = "#6A4C93",
+  "Rep. of Korea" = "#E9C46A",
+  "Korea" = "#E9C46A",
+  "Viet Nam" = "#264653",
+  "Thailand" = "#00247D",
+  "India" = "#2A9D8F",
+  "Chinese Taipei" = "#7D26CD",
+  "Taipei" = "#7D26CD",
+  "EU28" = "#CD9B9B"
+)
+
+theme_report <- function(base_size = 12) {
+  theme_minimal(base_size = base_size) +
+    theme(
+      plot.title = element_text(face = "bold", size = base_size + 2, hjust = 0),
+      plot.subtitle = element_text(size = base_size, color = "gray30", hjust = 0),
+      plot.caption = element_text(size = base_size - 2, color = "gray40", hjust = 0),
+      legend.position = "bottom",
+      legend.title = element_text(face = "bold"),
+      panel.grid.minor = element_blank(),
+      axis.title = element_text(face = "bold"),
+      strip.text = element_text(face = "bold")
+    )
+}
+```
+
+
+
+# Introduction
+
+Telecommunications is a strategically important sector because it sits at the center of digital infrastructure, industrial competitiveness, and national security. However, measuring national strength in this sector is not straightforward. Gross trade data can show where the United States buys and sells telecommunications goods, but it cannot show where the underlying value is actually created.
+
+This report therefore combines **UN Comtrade** and **OECD Trade in Value Added (TiVA)** data to examine the changing position of the United States in global telecommunications supply chains. The analysis begins with gross U.S. import sourcing patterns, then compares those surface-level trade flows with value-added indicators. The report then turns specifically to Chinese value added, including both direct value-added shares and third-country routing patterns captured through ADB MRIO data.
+
+The central question is:
+
+> **Does the United States remain strong in telecommunications production, or do gross trade patterns conceal deeper dependence on foreign and Chinese value added?**
+
+# Data and Method
+
+This report uses three data sources:
+
+1. **UN Comtrade**, used to measure gross U.S. telecommunications imports and exports.
+2. **OECD TiVA**, used to measure domestic and foreign value added in U.S. telecommunications final demand and exports.
+3. **ADB MRIO**, used to examine Chinese value added reaching the United States through third-country supply-chain routes.
+
+The logic of the analysis is sequential. First, gross import data shows the direct geography of U.S. sourcing. Second, TiVA data reveals how much value is created domestically versus abroad. Third, Chinese value-added measures show whether supply-chain exposure persists even when direct bilateral trade patterns appear to shift.
+
+# U.S. Telecommunications Imports: Direct Sourcing Patterns
+
+```{r import-data}
+comparison <- read_csv(file.path(data_dir, "Comtrade/US_Import_From_All.csv"))
+
+imports_clean <- comparison %>%
+  mutate(
+    partnerDesc = str_squish(as.character(partnerDesc)),
+    flowDesc = str_squish(as.character(flowDesc)),
+    refYear = as.numeric(refYear),
+    primaryValue = as.numeric(primaryValue)
+  ) %>%
+  filter(
+    flowDesc == "Import",
+    !str_to_upper(partnerDesc) %in% c("WORLD", "OTHER ASIA, NES"),
+    !is.na(refYear),
+    !is.na(primaryValue)
+  )
+
+top_import_partners <- imports_clean %>%
+  group_by(partnerDesc) %>%
+  summarise(
+    total_imports = sum(primaryValue, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  slice_max(total_imports, n = 7)
+
+imports_top <- imports_clean %>%
+  filter(partnerDesc %in% top_import_partners$partnerDesc)
+```
+
+```{r fig-imports}
+p_imports <- ggplot(
+  imports_top,
+  aes(
+    x = refYear,
+    y = primaryValue,
+    color = partnerDesc,
+    group = partnerDesc
+  )
+) +
+  geom_line(linewidth = 1.1) +
+  scale_color_manual(values = country_colors) +
+  scale_x_continuous(
+    breaks = seq(min(imports_top$refYear), max(imports_top$refYear), by = 2)
+  ) +
+  scale_y_continuous(labels = label_number(scale_cut = cut_short_scale())) +
+  labs(
+    title = "U.S. Telecommunications Imports Became More 
+    Geographically Concentrated",
+    subtitle = "China emerged as a major direct supplier.",
+    x = "Year",
+    y = "Import value, current US$",
+    color = "Partner",
+    caption = "Source: UN Comtrade. Top partners selected by 
+    cumulative import value across the sample."
+  ) +
+  theme_report() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p_imports
+```
+
+Figure 1 shows the direct geography of U.S. telecommunications imports. China became a dominant direct supplier during the period, while countries such as Mexico and Viet Nam became increasingly important in later years. This pattern suggests that the geography of U.S. sourcing has shifted, especially as firms and policymakers became more concerned about concentration risk and supply-chain resilience.
+
+However, this figure also shows the limitation of gross trade data. A decline or stabilization in direct imports from China does not necessarily mean that Chinese value added has disappeared from U.S. telecommunications supply chains. Goods imported from third countries may still contain Chinese components, intermediate inputs, or production-stage value. This is why the next figures move from gross trade flows to value-added measures.
+
+# Domestic Value Added in U.S. Final Demand
+
+```{r dva-final-demand-data}
+us_final_demand <- read_csv(file.path(data_dir, "TiVA/up.A.csv")) %>%
+  transmute(
+    year = as.numeric(TIME_PERIOD),
+    us_value = as.numeric(OBS_VALUE)
+  )
+
+world_final_demand <- read_csv(file.path(data_dir, "TiVA/down.A.csv")) %>%
+  transmute(
+    year = as.numeric(TIME_PERIOD),
+    world_value = as.numeric(OBS_VALUE)
+  )
+
+dva_final_demand <- us_final_demand %>%
+  left_join(world_final_demand, by = "year") %>%
+  mutate(us_share = us_value / world_value) %>%
+  arrange(year)
+```
+
+```{r fig-dva-final-demand}
+p_dva_final_demand <- ggplot(
+  dva_final_demand,
+  aes(x = year, y = us_share)
+) +
+  geom_line(color = main_blue, linewidth = 1.2) +
+  geom_point(color = main_blue, size = 2) +
+  scale_x_continuous(
+    breaks = seq(min(dva_final_demand$year), max(dva_final_demand$year), by = 5)
+  ) +
+  scale_y_continuous(labels = percent_format(accuracy = 1)) +
+  labs(
+    title = "The U.S. DVA Share Declined Before Partially Recovering",
+    subtitle = "DVA in U.S. telecommunications final demand fell from 
+    its early-2000s level and did not fully return.",
+    x = "Year",
+    y = "U.S. domestic share of value added",
+    caption = "Source: OECD TiVA Database."
+  ) +
+  theme_report()
+
+p_dva_final_demand
+```
+
+Figure 2 shows that the domestic value-added share in U.S. telecommunications final demand declined from the early 2000s before partially recovering in later years. This pattern is consistent with deeper global supply-chain integration, where foreign production and intermediate inputs became more important in satisfying U.S. demand.
+
+The later recovery is important, but it should not be overstated. The figure suggests some adjustment, possibly connected to tariffs, supply-chain diversification, or renewed attention to domestic and regional resilience. Still, the domestic share does not fully return to its initial level, indicating that foreign value added remains structurally important in U.S. telecommunications final demand.
+
+# Gross Exports and Domestic Value Added in Exports
+
+```{r export-data}
+comtrade_exports_world <- read_excel(
+  file.path(data_dir, "Comtrade/us export world.xlsx")
+) %>%
+  transmute(
+    year = as.numeric(refYear),
+    gross_exports_million = as.numeric(primaryValue) / 1e6
+  ) %>%
+  arrange(year)
+
+us_export_dva <- read_csv(file.path(data_dir, "TiVA/US_E.csv")) %>%
+  filter(`Exporting area` %in% c("OECD", "Non-OECD economies")) %>%
+  group_by(TIME_PERIOD) %>%
+  summarise(
+    dva_exports_million = sum(OBS_VALUE, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  transmute(
+    year = as.numeric(TIME_PERIOD),
+    dva_exports_million = as.numeric(dva_exports_million)
+  ) %>%
+  arrange(year)
+```
+
+```{r fig-gross-exports}
+p_gross_exports <- ggplot(
+  comtrade_exports_world,
+  aes(x = year, y = gross_exports_million)
+) +
+  geom_line(color = main_blue, linewidth = 1.2) +
+  geom_point(color = main_blue, size = 2) +
+  scale_x_continuous(
+    breaks = seq(min(comtrade_exports_world$year), max(comtrade_exports_world$year), by = 2)
+  ) +
+  scale_y_continuous(labels = label_comma()) +
+  labs(
+    title = "U.S. Telecommunications Gross Exports Increased Over Time",
+    subtitle = "Gross exports show continued U.S. participation in global telecommunications trade.",
+    x = "Year",
+    y = "Gross exports, US$ million",
+    caption = "Source: UN Comtrade."
+  ) +
+  theme_report() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p_gross_exports
+```
+
+```{r fig-dva-exports}
+p_dva_exports <- ggplot(
+  us_export_dva,
+  aes(x = year, y = dva_exports_million)
+) +
+  geom_line(color = main_blue, linewidth = 1.2) +
+  geom_point(color = main_blue, size = 2) +
+  scale_x_continuous(
+    breaks = seq(min(us_export_dva$year), max(us_export_dva$year), by = 5)
+  ) +
+  scale_y_continuous(labels = label_comma()) +
+  labs(
+    title = "Domestic Value Added in U.S. Gross Exports Also Rose",
+    subtitle = "The value-added series shows the domestic production component behind export performance.",
+    x = "Year",
+    y = "Domestic value added, US$ million",
+    caption = "Source: OECD TiVA Database."
+  ) +
+  theme_report()
+
+p_dva_exports
+```
+
+Figures 3 and 4 should be read together. Figure 3 shows that U.S. telecommunications gross exports increased over time. On its own, this could be interpreted as evidence of rising U.S. export strength. Figure 4 complicates that interpretation by showing the domestic value-added component of those exports.
+
+The key analytical point is that gross exports and domestic value added are not the same thing. Gross exports measure the total value of goods crossing borders, while domestic value added measures the portion of that value actually created inside the United States. If gross exports rise faster than domestic value added, then part of the export performance may reflect foreign inputs embedded in U.S. exports rather than a stronger domestic production base.
+
+# Chinese Value Added in U.S. Telecommunications Final Demand
+
+```{r chinese-va-final-demand-data}
+chinese_va_final_demand <- read_csv(
+  file.path(data_dir, "TiVA/indirect Chinese VA.csv")
+) %>%
+  transmute(
+    year = as.numeric(TIME_PERIOD),
+    china_va_million = as.numeric(OBS_VALUE)
+  ) %>%
+  arrange(year) %>%
+  mutate(
+    yoy_growth = china_va_million / lag(china_va_million) - 1
+  )
+```
+
+```{r fig-chinese-va-final-demand}
+label_years <- chinese_va_final_demand %>%
+  filter(year %in% c(min(year), 2010, 2015, 2020, max(year)))
+
+p_chinese_va_final <- ggplot(
+  chinese_va_final_demand,
+  aes(x = year, y = china_va_million)
+) +
+  geom_line(color = china_red, linewidth = 1.2) +
+  geom_point(color = china_red, size = 2) +
+  geom_text(
+    data = label_years,
+    aes(label = label_comma(accuracy = 1)(china_va_million)),
+    vjust = -0.8,
+    size = 3,
+    color = china_red
+  ) +
+  scale_x_continuous(
+    breaks = seq(min(chinese_va_final_demand$year), max(chinese_va_final_demand$year), by = 5)
+  ) +
+  scale_y_continuous(
+    labels = label_comma(),
+    expand = expansion(mult = c(0.02, 0.12))
+  ) +
+  labs(
+    title = "Chinese Value Added in U.S. Telecommunications Final Demand Increased Substantially",
+    subtitle = "The level measure captures how much Chinese-origin value is embodied in U.S. telecommunications demand.",
+    x = "Year",
+    y = "Chinese value added, US$ million",
+    caption = "Source: OECD TiVA Database. Selected points are labeled in US$ million."
+  ) +
+  theme_report()
+
+p_chinese_va_final
+```
+
+Figure 5 shifts the focus from U.S. domestic value added to Chinese value added. The figure shows that Chinese-origin value embodied in U.S. telecommunications final demand increased substantially over time. This is a deeper measure of dependence than direct imports because it captures value embedded through production networks rather than only final shipment routes.
+
+This matters because the policy relevance of supply-chain exposure is not limited to direct bilateral trade. Even if the United States imports more telecommunications goods from countries such as Mexico or Viet Nam, Chinese value added may still be present upstream through components, intermediate inputs, or production stages.
+
+# Chinese Share of Value Added in U.S. Final Demand
+
+```{r chinese-share-final-demand-data}
+all_tiva <- read_csv(file.path(data_dir, "TiVA/all countries.csv")) %>%
+  mutate(
+    TIME_PERIOD = as.numeric(TIME_PERIOD),
+    OBS_VALUE = as.numeric(OBS_VALUE)
+  )
+
+china_share_final_demand <- all_tiva %>%
+  group_by(TIME_PERIOD) %>%
+  mutate(
+    year_total = sum(OBS_VALUE, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  filter(`Value added origin area` == "China (People’s Republic of)") %>%
+  transmute(
+    year = TIME_PERIOD,
+    china_share = OBS_VALUE / year_total
+  ) %>%
+  arrange(year)
+```
+
+```{r fig-china-share-final-demand}
+p_china_share_final <- ggplot(
+  china_share_final_demand,
+  aes(x = year, y = china_share)
+) +
+  geom_line(color = china_red, linewidth = 1.2) +
+  geom_point(color = china_red, size = 2) +
+  scale_x_continuous(
+    breaks = seq(min(china_share_final_demand$year), max(china_share_final_demand$year), by = 5)
+  ) +
+  scale_y_continuous(labels = percent_format(accuracy = 0.1)) +
+  labs(
+    title = "China Captured a Rising Share of Value Added in U.S. Telecommunications Final Demand",
+    subtitle = "The share measure shows China’s relative position within the value-added structure, not only its absolute level.",
+    x = "Year",
+    y = "Chinese share of value added",
+    caption = "Source: OECD TiVA Database. Denominator is total value added in U.S. telecommunications final demand."
+  ) +
+  theme_report()
+
+p_china_share_final
+```
+
+Figure 6 converts Chinese value added into a share of total value added in U.S. telecommunications final demand. This is useful because the absolute level of Chinese value added may increase simply because the sector grows overall. The share measure shows whether China’s relative importance increased within the structure of U.S. telecommunications demand.
+
+The figure therefore strengthens the central argument of the report: U.S. dependence cannot be evaluated only by looking at direct imports or gross trade flows. Value-added shares reveal whether the underlying production structure has shifted toward foreign and Chinese-origin value.
+
+# Chinese Value Added in U.S. Gross Exports
+
+```{r chinese-share-exports-data}
+china_va_exports <- read_csv(file.path(data_dir, "TiVA/Chinese_VA_Export.csv")) %>%
+  transmute(
+    year = as.numeric(TIME_PERIOD),
+    china_value = as.numeric(OBS_VALUE)
+  )
+
+world_va_exports <- read_csv(file.path(data_dir, "TiVA/Chinese_VA_Export1.csv")) %>%
+  transmute(
+    year = as.numeric(TIME_PERIOD),
+    world_value = as.numeric(OBS_VALUE)
+  ) %>%
+  group_by(year) %>%
+  summarise(
+    world_value = sum(world_value, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+china_share_exports <- china_va_exports %>%
+  left_join(world_va_exports, by = "year") %>%
+  mutate(
+    china_share = china_value / world_value
+  ) %>%
+  arrange(year)
+```
+
+```{r fig-china-share-exports}
+p_china_share_exports <- ggplot(
+  china_share_exports,
+  aes(x = year, y = china_share)
+) +
+  geom_line(color = china_red, linewidth = 1.2) +
+  geom_point(color = china_red, size = 2) +
+  scale_x_continuous(
+    breaks = seq(min(china_share_exports$year), max(china_share_exports$year), by = 5)
+  ) +
+  scale_y_continuous(labels = percent_format(accuracy = 0.01)) +
+  labs(
+    title = "Chinese Value Added Also Appears in U.S. Telecommunications Gross Exports",
+    subtitle = "This indicates that Chinese-origin inputs may be embedded not only in U.S. consumption, but also in U.S. export performance.",
+    x = "Year",
+    y = "Chinese share of value added",
+    caption = "Source: OECD TiVA Database. Denominator is total value added in U.S. telecommunications gross exports."
+  ) +
+  theme_report()
+
+p_china_share_exports
+```
+
+Figure 7 extends the Chinese value-added analysis from U.S. final demand to U.S. gross exports. This distinction matters because exports are often interpreted as a sign of national productive strength. If Chinese value added is embedded in U.S. telecommunications exports, then some part of U.S. export performance may depend on foreign upstream production.
+
+This does not mean the United States is not an important exporter. Instead, it means that export strength should be interpreted through a supply-chain lens. In a fragmented production system, exports can contain domestic and foreign value simultaneously.
+
+# Third-Country Routing: Chinese Value Added via Partner Economies
+
+```{r adb-mrio-data}
+adb_telecom <- read_csv(file.path(data_dir, "ADB/telecom_results.csv"))
+
+via_df <- adb_telecom %>%
+  transmute(
+    year = as.numeric(year),
+    China = as.numeric(total_prc_va_bn),
+    `Viet Nam` = as.numeric(va_via_VIE_bn),
+    Mexico = as.numeric(va_via_MEX_bn),
+    Korea = as.numeric(va_via_KOR_bn),
+    India = as.numeric(va_via_IND_bn),
+    Japan = as.numeric(va_via_JPN_bn),
+    Taipei = as.numeric(va_via_TAP_bn),
+    Canada = as.numeric(va_via_CAN_bn)
+  ) %>%
+  pivot_longer(
+    cols = -year,
+    names_to = "country",
+    values_to = "value_bn"
+  ) %>%
+  mutate(
+    country = factor(
+      country,
+      levels = c(
+        "China",
+        "Viet Nam",
+        "Mexico",
+        "Korea",
+        "India",
+        "Japan",
+        "Taipei",
+        "Canada"
+      )
+    )
+  )
+```
+
+```{r fig-third-country-routing}
+p_via <- ggplot(
+  via_df,
+  aes(x = year, y = value_bn, color = country)
+) +
+  geom_line(linewidth = 1.2) +
+  geom_point(size = 2) +
+  scale_color_manual(values = country_colors) +
+  scale_x_continuous(
+    breaks = seq(min(via_df$year), max(via_df$year), by = 1)
+  ) +
+  scale_y_continuous(labels = label_comma()) +
+  labs(
+    title = "Chinese Value Added Reach the United States Through Third Countries",
+    x = "Year",
+    y = "Value added, US$ billion",
+    color = NULL,
+    caption = "Source: ADB MRIO Input-Output Table."
+  ) +
+  theme_report()
+
+p_via
+```
+
+Figure 8 provides the final layer of the report: third-country routing. If Chinese value added reaches the United States through economies such as Viet Nam, Mexico, Korea, Japan, India, or Canada, then direct bilateral import statistics will understate the degree of Chinese supply-chain exposure.
+
+This figure helps connect the earlier gross trade and TiVA results. Gross trade data may show diversification away from China as a direct supplier, but MRIO data can reveal whether Chinese-origin value remains embedded through upstream production networks. In other words, a change in the shipping route is not always the same as a change in the production network.
+
+# Discussion
+
+The main finding of this report is that gross trade data and value-added data tell related but importantly different stories about the U.S. telecommunications sector. Gross import data shows where the United States buys from directly. TiVA data shows where the underlying value is created. ADB MRIO data then adds another layer by showing how Chinese value added may move through third countries before reaching U.S. supply chains.
+
+The visual evidence suggests three broad conclusions. First, the geography of U.S. telecommunications sourcing has changed over time, with China, Mexico, Viet Nam, and other partners playing important roles. Second, the U.S. domestic value-added share in telecommunications final demand declined from earlier levels, indicating that foreign production became more important in satisfying U.S. demand. Third, Chinese value added remains a key analytical concern because it can appear both directly and indirectly through fragmented production networks.
+
+This matters for policy because supply-chain resilience cannot be assessed by gross trade data alone. If policymakers only track direct imports from China, they may miss Chinese-origin value embedded in goods imported from third countries. For sectors such as telecommunications, where production is fragmented and strategically important, value-added analysis provides a more accurate picture of dependence, competitiveness, and vulnerability.
+
+# Conclusion
+
+This report shows that the United States remains an important market and participant in global telecommunications trade, but gross trade values alone do not fully capture its production position. The decline in domestic value-added shares suggests that the United States became more reliant on foreign production networks over time. At the same time, Chinese value-added measures show that China’s role may persist even when direct import patterns appear to diversify.
+
+The broader takeaway is that **trade exposure is not only about who ships the final good**. It is also about where value is created across the supply chain. For telecommunications, this distinction is especially important because the sector is tied to digital infrastructure, industrial strategy, and national security.
+
+# Bibliography
+
+Organisation for Economic Co-operation and Development (OECD). Trade in Value Added (TiVA) Database.
+
+United Nations Comtrade Database.
+
+Asian Development Bank. Multi-Regional Input-Output (ADB MRIO) Tables.
